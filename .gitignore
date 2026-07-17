@@ -19,6 +19,11 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.python-version
+*.log
 
 # OS/editor
 .DS_Store
@@ -30,4 +35,8 @@ sample_data/
 samples/
 reports/
 *.report.html
+sample_*.csv
+*_sample.csv
+report*.html
+*_report.html
 
