@@ -19,7 +19,7 @@ def _read_csv(uploaded_file) -> pd.DataFrame:
     uploaded_file.seek(0)
 
     decoded = raw.decode("utf-8-sig", errors="replace")
-    return pd.read_csv(io.StringIO(decoded))
+    return pd.read_csv(io.StringIO(decoded), sep=None, engine="python", skipinitialspace=True)
 
 
 def _to_amount(series: pd.Series) -> pd.Series:
@@ -36,14 +36,47 @@ def _to_amount(series: pd.Series) -> pd.Series:
 
 
 def _find_column(columns: list[str], candidates: list[str]) -> str | None:
-    lowered = {c.lower(): c for c in columns}
+    def normalize(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+    lowered = {normalize(c): c for c in columns}
     for candidate in candidates:
-        if candidate in lowered:
-            return lowered[candidate]
+        normalized_candidate = normalize(candidate)
+        if normalized_candidate in lowered:
+            return lowered[normalized_candidate]
     for col in columns:
-        col_l = col.lower()
-        if any(candidate in col_l for candidate in candidates):
+        col_l = normalize(col)
+        if any(normalize(candidate) in col_l for candidate in candidates):
             return col
+    return None
+
+
+def _infer_column_by_values(df: pd.DataFrame, prefer_date: bool = False) -> str | None:
+    if df.empty:
+        return None
+
+    sample_size = min(len(df), 25)
+    best_column = None
+    best_score = 0.0
+
+    for column in df.columns:
+        series = df[column].dropna().astype(str).head(sample_size)
+        if series.empty:
+            continue
+
+        if prefer_date:
+            parsed = pd.to_datetime(series, errors="coerce")
+            score = parsed.notna().mean()
+        else:
+            numeric_like = series.str.replace(r"[^0-9\.-]", "", regex=True).str.len() > 0
+            score = 1.0 - numeric_like.mean()
+
+        if score > best_score:
+            best_score = float(score)
+            best_column = column
+
+    if best_score >= 0.5:
+        return best_column
     return None
 
 
@@ -57,6 +90,11 @@ def _parse_generic(df: pd.DataFrame) -> pd.DataFrame:
 
     date_col = _find_column(data.columns.tolist(), date_col_candidates)
     desc_col = _find_column(data.columns.tolist(), desc_col_candidates)
+
+    if date_col is None:
+        date_col = _infer_column_by_values(data, prefer_date=True)
+    if desc_col is None:
+        desc_col = _infer_column_by_values(data, prefer_date=False)
 
     if date_col is None or desc_col is None:
         raise ValueError("CSV is missing required date/description columns.")
